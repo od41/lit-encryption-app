@@ -6,17 +6,18 @@ import { useAccount, useSignMessage } from "wagmi";
 import { LitNetwork } from "@lit-protocol/constants";
 import { uint8arrayToString } from "@lit-protocol/uint8arrays";
 
-import {
-  AuthCallbackParams,
-  AuthSig,
-  SessionSigsMap,
-} from "@lit-protocol/types";
+import { AuthCallbackParams } from "@lit-protocol/types";
+
+import { useEthersProvider } from "./ethersProvider";
+import { useEthersSigner } from "./ethersSigner";
 
 import {
   LitAbility,
   createSiweMessageWithRecaps,
   LitAccessControlConditionResource,
+  generateAuthSig,
 } from "@lit-protocol/auth-helpers";
+import { Signer } from "ethers";
 
 const chain = "baseSepolia";
 
@@ -26,6 +27,7 @@ export default function LitEncryption() {
   const [litNodeClient, setLitNodeClient] = useState<LitJsSdk.LitNodeClient>();
   const { address } = useAccount();
   const { signMessage } = useSignMessage();
+  const signer = useEthersSigner()
 
   useEffect(() => {
     const initLitClient = async () => {
@@ -43,31 +45,6 @@ export default function LitEncryption() {
 
     initLitClient();
   }, []);
-
-  // useEffect(() => {
-  //   if (litNodeClient) {
-  //     const initSessionSigs = async () => {
-  //       try {
-  //         const _sessionSigs = await litNodeClient.getSessionSigs({
-  //           chain,
-  //           resourceAbilityRequests: [
-  //             {
-  //               resource: new LitAccessControlConditionResource("*"),
-  //               ability: LitAbility.AccessControlConditionDecryption,
-  //             },
-  //           ],
-  //           switchChain: true,
-  //           authNeededCallback,
-  //         });
-  //         setSessionSigs(_sessionSigs);
-  //       } catch (error) {
-  //         console.error("error setting session sigs", error);
-  //       }
-  //     };
-
-  //     initSessionSigs();
-  //   }
-  // }, [litNodeClient]);
 
   const handleFileChange = (e: any) => {
     setFile(e.target.files[0]);
@@ -93,16 +70,12 @@ export default function LitEncryption() {
         nonce: latestBlockhash,
         litNodeClient: litNodeClient,
       });
-      // Use the Ethereum wallet to sign the message, return the digital signature
-      const signature = await signMessage({ message: toSign });
 
-      // Create an AuthSig using the derived signature, the message, and wallet address
-      const authSig: AuthSig = {
-        sig: signature,
-        derivedVia: "web3.eth.personal.sign",
-        signedMessage: toSign,
-        address: address as string,
-      };
+      // Generate the authSig
+      const authSig = await generateAuthSig({
+        signer: signer as Signer,
+        toSign,
+      });
 
       return authSig;
     };
@@ -141,7 +114,6 @@ export default function LitEncryption() {
   const encryptFile = async () => {
     if (!file || !litNodeClient) return;
 
-    
     try {
       const sessionSigs = await getSessionSignatures();
       const { ciphertext, dataToEncryptHash } = await LitJsSdk.encryptFile(
@@ -170,10 +142,9 @@ export default function LitEncryption() {
   const decryptFile = async () => {
     if (!encryptedFile || !litNodeClient) return;
 
-    
     try {
       const sessionSigs = await getSessionSignatures();
-  
+
       console.log("sessionsigs", sessionSigs);
       console.log("encyrptmeta", encryptedFile);
       const decryptedFileUint8 = await LitJsSdk.decryptToFile(
