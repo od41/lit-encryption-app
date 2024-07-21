@@ -22,12 +22,11 @@ import { Signer } from "ethers";
 const chain = "baseSepolia";
 
 export default function LitEncryption() {
-  const [file, setFile] = useState(null);
+  const [file, setFile] = useState<File>();
   const [encryptedFile, setEncryptedFile] = useState<any>(null);
   const [litNodeClient, setLitNodeClient] = useState<LitJsSdk.LitNodeClient>();
   const { address } = useAccount();
-  const { signMessage } = useSignMessage();
-  const signer = useEthersSigner()
+  const signer = useEthersSigner();
 
   useEffect(() => {
     const initLitClient = async () => {
@@ -116,23 +115,21 @@ export default function LitEncryption() {
 
     try {
       const sessionSigs = await getSessionSignatures();
-      const { ciphertext, dataToEncryptHash } = await LitJsSdk.encryptFile(
-        {
-          file,
-          chain,
-          accessControlConditions,
-          // sessionSigs
-        },
-        litNodeClient
-      );
-
-      console.log("cipher", ciphertext);
-      console.log("dataToEncryptHash", dataToEncryptHash);
-
-      setEncryptedFile({
-        ciphertext,
-        dataToEncryptHash,
+      const fileResZip = await LitJsSdk.encryptFileAndZipWithMetadata({
+        file,
+        chain,
+        accessControlConditions,
+        sessionSigs: sessionSigs!,
+        litNodeClient,
+        readme: "decrypted by recipient",
       });
+
+      // console.log("cipher", ciphertext);
+      // console.log("dataToEncryptHash", dataToEncryptHash);
+      const encryptedBlob = new Blob([fileResZip], { type: "text/plain" });
+      const encryptedFile = new File([encryptedBlob], file.name);
+
+      setEncryptedFile(encryptedFile);
     } catch (error) {
       console.error("error encrypting", error);
     }
@@ -147,28 +144,35 @@ export default function LitEncryption() {
 
       console.log("sessionsigs", sessionSigs);
       console.log("encyrptmeta", encryptedFile);
-      const decryptedFileUint8 = await LitJsSdk.decryptToFile(
-        {
-          ciphertext: encryptedFile.ciphertext,
-          dataToEncryptHash: encryptedFile.dataToEncryptHash,
-          accessControlConditions,
-          sessionSigs,
-          chain,
-        },
-        litNodeClient
-      );
+      const dcRes = await LitJsSdk.decryptZipFileWithMetadata({
+        file: encryptedFile,
+        sessionSigs,
+        litNodeClient,
+      });
 
-      console.log("decrypted file", decryptedFileUint8);
+      const { decryptedFile, metadata } = dcRes!;
 
-      const decryptedFile = new Blob([
-        uint8arrayToString(decryptedFileUint8, "utf8"),
-      ]);
+      console.log("decrypted file", decryptedFile);
 
-      const url = URL.createObjectURL(decryptedFile);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "decrypted_file";
-      a.click();
+      // const decryptedFile = new Blob(
+      //   [uint8arrayToString(decryptedFileUint8, "utf8")],
+      //   { endings: "transparent", type: "image/png" }
+      // );
+
+      // After we have our dcypted file we can download it
+      const blob = new Blob([decryptedFile], {
+        type: "application/octet-stream",
+      });
+      const downloadLink = document.createElement("a");
+      downloadLink.href = URL.createObjectURL(blob);
+      downloadLink.download = metadata.name;
+      downloadLink.click();
+
+      // const url = URL.createObjectURL(decryptedFile);
+      // const a = document.createElement("a");
+      // a.href = url;
+      // a.download = "decrypted_file";
+      // a.click();
     } catch (error) {
       console.error("error decrypting", error);
     }
